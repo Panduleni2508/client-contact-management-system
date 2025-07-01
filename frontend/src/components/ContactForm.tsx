@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect, SearchableSelectOption } from '@/components/ui/searchable-select';
 import { useToast } from '@/components/ui/use-toast';
 import { X, Unlink } from 'lucide-react';
 import {
@@ -42,6 +42,7 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
   const [showLinkConfirmation, setShowLinkConfirmation] = useState(false);
   const [showUnlinkConfirmation, setShowUnlinkConfirmation] = useState(false);
   const [clientToUnlink, setClientToUnlink] = useState<Client | null>(null);
+  const [contactCreated, setContactCreated] = useState(!!contact);
   const { toast } = useToast();
 
   // Fetch linked clients when contact changes or component mounts
@@ -66,7 +67,6 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
     if (name.trim() && surname.trim() && email.trim()) {
       try {
         setCreating(true);
-        // If editing, just update the contact
         if (contact) {
           await onSubmit({
             name: name.trim(),
@@ -75,16 +75,15 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
           });
           onClose();
         } else {
-          // Create the contact first
           const createdContact = await onSubmit({
             name: name.trim(),
             surname: surname.trim(),
             email: email.trim(),
           });
           
-          // Store the created contact ID for linking later
           if (createdContact && createdContact.id) {
             setCreatedContactId(createdContact.id);
+            setContactCreated(true);
             toast({
               title: 'Success',
               description: 'Contact created successfully. You can now link it to clients.',
@@ -150,14 +149,8 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
     }
   };
 
-  const handleClientSelection = (clientId: string) => {
-    if (!selectedClients.includes(clientId)) {
-      setSelectedClients([...selectedClients, clientId]);
-    }
-  };
-
-  const handleRemoveClient = (clientId: string) => {
-    setSelectedClients(selectedClients.filter(id => id !== clientId));
+  const handleMultiClientSelection = (clientIds: string[]) => {
+    setSelectedClients(clientIds);
   };
 
   const handleUnlinkClient = async (client: Client) => {
@@ -201,7 +194,7 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
   };
 
   const isEmailUnique = (email: string) => {
-    // Check if email already exists in other contacts (excluding current contact if editing)
+    if (!email || contactCreated) return true; // Skip validation after contact is created
     const existingContactWithEmail = existingContacts.find(
       c => c.email.toLowerCase() === email.toLowerCase() && c.id !== contact?.id
     );
@@ -209,11 +202,20 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
   };
 
   const getEmailError = () => {
-    if (!email) return null;
+    if (!email || contactCreated) return null; // Skip validation after contact is created
     if (!isValidEmail(email)) return 'Please enter a valid email address';
     if (!isEmailUnique(email)) return 'This email address is already in use';
     return null;
   };
+
+  // Prepare client options for the searchable select
+  const availableClientOptions: SearchableSelectOption[] = clients
+    .filter(client => !linkedClients.some(linked => linked.id === client.id))
+    .map(client => ({
+      value: client.id,
+      label: `${client.name} (${client.code})`,
+      searchableText: `${client.name} ${client.code}`
+    }));
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -246,6 +248,7 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
                   placeholder="Enter first name"
                   required
                   className="mt-1"
+                  disabled={contactCreated && !contact}
                 />
               </div>
 
@@ -259,6 +262,7 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
                   placeholder="Enter surname"
                   required
                   className="mt-1"
+                  disabled={contactCreated && !contact}
                 />
               </div>
 
@@ -272,6 +276,7 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
                   placeholder="Enter email address"
                   required
                   className="mt-1"
+                  disabled={contactCreated && !contact}
                 />
                 {getEmailError() && (
                   <p className="text-sm text-red-600 mt-1">{getEmailError()}</p>
@@ -282,12 +287,12 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
                 <Button 
                   type="submit" 
                   className="flex-1 bg-blue-600 hover:bg-blue-700"
-                  disabled={!name.trim() || !surname.trim() || !email.trim() || !isValidEmail(email) || !isEmailUnique(email) || creating}
+                  disabled={!name.trim() || !surname.trim() || !email.trim() || !isValidEmail(email) || !isEmailUnique(email) || creating || (contactCreated && !contact)}
                 >
-                  {creating ? 'Creating...' : contact ? 'Update' : 'Create'} Contact
+                  {creating ? 'Creating...' : contact ? 'Update' : contactCreated ? 'Contact Created' : 'Create'} Contact
                 </Button>
                 <Button type="button" variant="outline" onClick={onClose}>
-                  Cancel
+                  {contactCreated && !contact ? 'Done' : 'Cancel'}
                 </Button>
               </div>
             </form>
@@ -301,47 +306,19 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
               
               <div>
                 <Label htmlFor="client-select">Select Client(s)</Label>
-                <Select onValueChange={handleClientSelection}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Choose clients to link..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients
-                      .filter(client => !selectedClients.includes(client.id))
-                      .filter(client => !linkedClients.some(linked => linked.id === client.id))
-                      .map((client) => (
-                        <SelectItem key={client.id} value={client.id}>
-                          {client.name} ({client.code})
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  options={availableClientOptions}
+                  selectedValues={selectedClients}
+                  onMultiValueChange={handleMultiClientSelection}
+                  placeholder="Choose clients to link..."
+                  searchPlaceholder="Search clients..."
+                  emptyText="No clients found."
+                  multiSelect={true}
+                  className="mt-1"
+                />
               </div>
 
-              {selectedClients.length > 0 && (
-                <div className="mt-4">
-                  <Label>Selected Clients:</Label>
-                  <div className="mt-2 space-y-2">
-                    {selectedClients.map((clientId) => {
-                      const client = clients.find(c => c.id === clientId);
-                      return client ? (
-                        <div key={clientId} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                          <span>{client.name} ({client.code})</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemoveClient(clientId)}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      ) : null;
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {clients.filter(client => !selectedClients.includes(client.id) && !linkedClients.some(linked => linked.id === client.id)).length === 0 && (
+              {availableClientOptions.length === 0 && (
                 <p className="text-center py-8 text-gray-500">
                   {clients.length === 0 ? 'No clients found.' : 'All clients are already linked to this contact.'}
                 </p>
@@ -350,7 +327,7 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
               <div className="flex gap-2 pt-4">
                 <Button 
                   onClick={handleLinkClients}
-                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
                   disabled={selectedClients.length === 0 || linking}
                 >
                   {linking ? 'Linking...' : 'Link to Selected Clients'}
@@ -440,7 +417,7 @@ const ContactForm = ({ contact, clients, existingContacts, onSubmit, onClose, on
             <AlertDialogAction 
               onClick={confirmLinkClients}
               disabled={linking}
-              className="bg-green-600 hover:bg-green-700"
+               className=" bg-blue-600 hover:bg-blue-700"
             >
               {linking ? 'Linking...' : 'Link Clients'}
             </AlertDialogAction>

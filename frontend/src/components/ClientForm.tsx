@@ -1,11 +1,10 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchableSelect, SearchableSelectOption } from '@/components/ui/searchable-select';
 import { useToast } from '@/components/ui/use-toast';
 import { X, Unlink } from 'lucide-react';
 import {
@@ -53,6 +52,8 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
   const [showLinkConfirmation, setShowLinkConfirmation] = useState(false);
   const [showUnlinkConfirmation, setShowUnlinkConfirmation] = useState(false);
   const [contactToUnlink, setContactToUnlink] = useState<Contact | null>(null);
+  // State for client creation status
+  const [clientCreated, setClientCreated] = useState(!!client);
   // Toast for notifications
   const { toast } = useToast();
 
@@ -91,6 +92,7 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
           if (createdClient && createdClient.id) {
             setCreatedClientId(createdClient.id);
             setGeneratedCode(createdClient.code);
+            setClientCreated(true);
             toast({
               title: 'Success',
               description: 'Client created successfully. You can now link it to contacts.',
@@ -202,18 +204,18 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
   /**
    * Handles selection of a contact to be linked.
    */
-  const handleContactSelection = (contactId: string) => {
-    if (!selectedContacts.includes(contactId)) {
-      setSelectedContacts([...selectedContacts, contactId]);
-    }
+  const handleMultiContactSelection = (contactIds: string[]) => {
+    setSelectedContacts(contactIds);
   };
 
-  /**
-   * Removes a contact from the selection list (before linking).
-   */
-  const handleRemoveContact = (contactId: string) => {
-    setSelectedContacts(selectedContacts.filter(id => id !== contactId));
-  };
+  // Prepare contact options for the searchable select
+  const availableContactOptions: SearchableSelectOption[] = contacts
+    .filter(contact => !linkedContacts.some(linked => linked.id === contact.id))
+    .map(contact => ({
+      value: contact.id,
+      label: `${contact.name} ${contact.surname} (${contact.email})`,
+      searchableText: `${contact.name} ${contact.surname} ${contact.email}`
+    }));
 
   // --- Render ---
   return (
@@ -249,6 +251,7 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
                   placeholder="Enter client name"
                   required
                   className="mt-1"
+                  disabled={clientCreated && !client}
                 />
               </div>
 
@@ -266,12 +269,12 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
                 <Button 
                   type="submit" 
                   className="flex-1 bg-blue-600 hover:bg-blue-700"
-                  disabled={!name.trim() || creating}
+                  disabled={!name.trim() || creating || (clientCreated && !client)}
                 >
-                  {creating ? 'Creating...' : client ? 'Update' : 'Create'} Client
+                  {creating ? 'Creating...' : client ? 'Update' : clientCreated ? 'Client Created' : 'Create'} Client
                 </Button>
                 <Button type="button" variant="outline" onClick={onClose}>
-                  Cancel
+                  {clientCreated && !client ? 'Done' : 'Cancel'}
                 </Button>
               </div>
             </form>
@@ -286,50 +289,20 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
               
               <div>
                 <Label htmlFor="contact-select">Select Contact(s)</Label>
-                <Select onValueChange={handleContactSelection}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Choose contacts to link..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {contacts
-                      // Exclude already selected or already linked contacts
-                      .filter(contact => !selectedContacts.includes(contact.id))
-                      .filter(contact => !linkedContacts.some(linked => linked.id === contact.id))
-                      .map((contact) => (
-                        <SelectItem key={contact.id} value={contact.id}>
-                          {contact.name} {contact.surname} ({contact.email})
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  options={availableContactOptions}
+                  selectedValues={selectedContacts}
+                  onMultiValueChange={handleMultiContactSelection}
+                  placeholder="Choose contacts to link..."
+                  searchPlaceholder="Search contacts..."
+                  emptyText="No contacts found."
+                  multiSelect={true}
+                  className="mt-1"
+                />
               </div>
 
-              {/* Show selected contacts before linking */}
-              {selectedContacts.length > 0 && (
-                <div className="mt-4">
-                  <Label>Selected Contacts:</Label>
-                  <div className="mt-2 space-y-2">
-                    {selectedContacts.map((contactId) => {
-                      const contact = contacts.find(c => c.id === contactId);
-                      return contact ? (
-                        <div key={contactId} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                          <span>{contact.name} {contact.surname} ({contact.email})</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemoveContact(contactId)}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      ) : null;
-                    })}
-                  </div>
-                </div>
-              )}
-
               {/* Show message if no contacts are available to link */}
-              {contacts.filter(contact => !selectedContacts.includes(contact.id) && !linkedContacts.some(linked => linked.id === contact.id)).length === 0 && (
+              {availableContactOptions.length === 0 && (
                 <p className="text-center py-8 text-gray-500">
                   {contacts.length === 0 ? 'No contacts found.' : 'All contacts are already linked to this client.'}
                 </p>
@@ -338,7 +311,7 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
               <div className="flex gap-2 pt-4">
                 <Button 
                   onClick={handleLinkContacts}
-                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
                   disabled={selectedContacts.length === 0 || linking}
                 >
                   {linking ? 'Linking...' : 'Link to Selected Contacts'}
@@ -364,7 +337,7 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
                       <tr>
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Contact Full Name</th>
                         <th className="text-left py-3 px-4 font-semibold text-gray-900">Email Address</th>
-                        <th className="text-left py-3 px-4 font-semibold text-gray-900"></th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Unlink</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -382,7 +355,7 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
                                 size="sm"
                                 onClick={() => handleUnlinkContact(contact)}
                                 disabled={unlinking}
-                                className="text-red-600 hover:text-red-700"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
                               >
                                 <Unlink className="w-4 h-4" />
                               </Button>
@@ -431,7 +404,7 @@ const ClientForm = ({ client, contacts, onSubmit, onClose, onRefresh }: ClientFo
             <AlertDialogAction 
               onClick={confirmLinkContacts}
               disabled={linking}
-              className="bg-green-600 hover:bg-green-700"
+              className="bg-blue-600 hover:bg-blue-700"
             >
               {linking ? 'Linking...' : 'Link Contacts'}
             </AlertDialogAction>

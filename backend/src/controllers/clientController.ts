@@ -5,10 +5,26 @@ import ClientContact from '../models/ClientContact';
 
 
 const generateClientCode = async (clientName: string): Promise<string> => {
-  // Extract first 3 characters from client name, convert to uppercase
-  let alphaPart = clientName.substring(0, 3).toUpperCase();
+  // Split the client name into words and filter out empty strings
+  const words = clientName.trim().split(/\s+/).filter(word => word.length > 0);
   
-  // If name is shorter than 3 characters, fill with 'A' to 'Z'
+  let alphaPart = '';
+  
+  if (words.length >= 3) {
+    // For 3+ words: take first letter of each word
+    alphaPart = words.map(word => word[0]).join('').slice(0, 3).toUpperCase();
+  } else if (words.length === 2) {
+    // For 2 words: first letter of first word + first 2 letters of second word
+    alphaPart = (words[0][0] + words[1].slice(0, 2)).toUpperCase();
+  } else if (words.length === 1) {
+    // For 1 word: first 3 letters
+    alphaPart = words[0].slice(0, 3).toUpperCase();
+  } else {
+    // Handle empty input by using 'AAA'
+    alphaPart = 'AAA';
+  }
+  
+  // If alphaPart is shorter than 3 characters, fill with 'A' to 'Z'
   if (alphaPart.length < 3) {
     const fillChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     for (let i = alphaPart.length; i < 3; i++) {
@@ -28,15 +44,12 @@ const generateClientCode = async (clientName: string): Promise<string> => {
     // If no existing client with this code, we have a unique code
     if (!existingClient) {
       isUnique = true;
-    } 
-    // If the code exists, increment the numeric part
-    else {
+    } else {
       numericPart++;
     }
   }
   
   // Return the final unique code
-  // Ensure numeric part is always 3 digits
   return `${alphaPart}${numericPart.toString().padStart(3, '0')}`;
 };
 
